@@ -21,7 +21,7 @@ MX=Bipolar_Stepper_Motor(17,4);     #pin number for a1,a2,b1,b2.  a1 and a2 form
 MY=Bipolar_Stepper_Motor(23,18);       
 MZ=Bipolar_Stepper_Motor(24,25);
 MExt=Bipolar_Stepper_Motor(27,22);
-#EndStop/Home Axis code needed still
+#TODO EndStop/Home Axis code needed still testing they should be tied to the enable pins of each motor
 EndStopX = 14
 EndStopY = 15
 EndStopZ = 7
@@ -33,10 +33,10 @@ HeatBedThermistor = 8
 outputs = [ExtHeater,HeatBed];
 inputs = [ExtThermistor,HeatBedThermistor,EndStopX,EndStopY,EndStopZ];
 
-dx=0.2; #resolution in x direction. Unit: mm  http://prusaprinters.org/calculator/
-dy=0.2; #resolution in y direction. Unit: mm  http://prusaprinters.org/calculator/
+dx=0.25; #resolution in x direction. Unit: mm  http://prusaprinters.org/calculator/
+dy=0.25; #resolution in y direction. Unit: mm  http://prusaprinters.org/calculator/
 dz=0.004; #resolution in Z direction. Unit: mm  http://prusaprinters.org/calculator/
-dext=0.038; # resolution for Extruder Unit: mm http://forums.reprap.org/read.php?1,144245
+dext=0.042; # resolution for Extruder Unit: mm http://forums.reprap.org/read.php?1,144245
 
 Engraving_speed=40; #unit=mm/sec=0.04in/sec
 
@@ -86,54 +86,51 @@ def sampleHeaterDutyCycle(pin, name):
     writeToLog(name+ " Estimated Tempurature "+ str(estTemp)+"\n")
     
 def get555PulseHighTime(pin):
-	counter = 0;
-	GPIO.wait_for_edge(pin, GPIO.RISING);
-    	while GPIO.input(pin) == GPIO.HIGH:
-    		counter += 1;
-    		time.sleep(0.001); # may try to change this to 0.0001 for more resolution
-    	return float(counter);
-    	
-		 
- #This function takes in the current temp and name of heater and returns the current average  
- #of the last three tempurature readings.  This avoids issues with reading spikes
-def getAverageTempFromQue(temp, name): 
-	retTemp = 0; 
-	if(name == "Extruder"): 
-		if(len(extTempQue) > 2): 
-			extTempQue.pop();			 
-		extTempQue.appendleft(temp)	 
-		retTemp = sum(extTempQue)/len(extTempQue); 
- 	else:
- 		if(len(heatBedTempQue) > 2): 
-			heatBedTempQue.pop();			 
-		heatBedTempQue.appendleft(temp)	 
-		retTemp = sum(heatBedTempQue)/len(heatBedTempQue); 
-		 
- 	return float(retTemp); 
+    counter = 0;
+    GPIO.wait_for_edge(pin, GPIO.RISING);
+    while GPIO.input(pin) == GPIO.HIGH:
+        counter += 1;
+        time.sleep(0.001); # may try to change this to 0.0001 for more resolution
+    return float(counter);
 
-		
+#This function takes in the current temp and name of heater and returns the current average  
+ #of the last three tempurature readings.  This avoids issues with reading spikes
+def getAverageTempFromQue(temp, name):
+    retTemp = 0;
+    if(name == "Extruder"):
+        if(len(extTempQue) > 2):
+            extTempQue.pop();
+        extTempQue.appendleft(temp)
+        retTemp = sum(extTempQue)/len(extTempQue);
+    else:
+        if(len(heatBedTempQue) > 2):
+            heatBedTempQue.pop();
+        heatBedTempQue.appendleft(temp)
+        retTemp = sum(heatBedTempQue)/len(heatBedTempQue);
+    return float(retTemp);
+
 #this function gets the rise time from a pin(thermistor pin) from the 555 timer out and cross reference with 
 #tempurature table to return the estimated current temperature of the cooresponding heater.
 def getTempFromTable(pin):
-	pulseHighTime = get555PulseHighTime(pin);
-	estTemp = 0;
-	#read from tempurate text file and return estimated temp from pulse time
-	linectr = 0;
-	for lines in open('Thermistor555TimerTempChart.txt','r'):
-            if linectr > 5:
-                lineSplit = lines.split();
-                if float(lineSplit[2]) <= pulseHighTime:
-                    estTemp = lineSplit[1];
-                    break
-            linectr += 1;
+    pulseHighTime = get555PulseHighTime(pin);
+    estTemp = 0;
+    #read from tempurate text file and return estimated temp from pulse time
+    linectr = 0;
+    for lines in open('Thermistor555TimerTempChart.txt','r'):
+        if linectr > 5:
+            lineSplit = lines.split();
+            if float(lineSplit[2]) <= pulseHighTime:
+                estTemp = lineSplit[1];
+                break
+        linectr += 1;
         #if estTemp == 0: #causing temp sensing error
             #estTemp = 250; #more than max temp
-	return float(estTemp);
+    return float(estTemp);
 
 #polling tempurature and setting to +/- 20degC of supplied tempfrom GCode
 def checkTemps():
-	curExtTemp = getTempFromTable(ExtThermistor);
-	curHeatBedTemp = getTempFromTable(HeatBedThermistor);
+	curExtTemp = getAverageTempFromQue(getTempFromTable(ExtThermistor), "Extruder");#getTempFromTable(ExtThermistor);
+	curHeatBedTemp = getAverageTempFromQue(getTempFromTable(HeatBedThermistor), "HeatBed");#getTempFromTable(HeatBedThermistor);
 	if (curExtTemp - 10) >= extTemp:
 		GPIO.output(ExtHeater, False);
 	elif(curExtTemp + 10) <= extTemp:
@@ -146,7 +143,7 @@ def checkTemps():
 def PenOff(ZMotor):
     # move ZAxis ~5 steps up
     ZMotor.move(1,5)
-	
+
 def PenOn(ZMotor):
     # move ZAxis ~5 steps down
     ZMotor.move(-1,5)
@@ -177,7 +174,7 @@ def homeAxis(motor,endStopPin):
     #in the middle of a program.  I'm not sure if this is even possible but I'm assuming it is.
     GPIO.setup(endStopPin,GPIO.OUT);
     GPIO.output(endStopPin, True);
-    motor.move(1,1);
+    motor.move(1,5);
     #Then step endstop GPIO back to input.
     GPIO.output(endStopPin, False);
     GPIO.setup(endStopPin,GPIO.IN,pull_up_down=GPIO.PUD_DOWN); # pull_up_down=GPIO.PUD_UP  or pull_up_down=GPIO.PUD_DOWN
@@ -292,10 +289,13 @@ def movetothree(MX,x_pos,dx,MY,y_pos,dy,MExt,ext_pos,dext,speed,engraving):
 #################                           ###############################################
 ###########################################################################################
 ###########################################################################################
-#to do  G28, M107, M104, M109, M106, M190
+#TODO  G28, M107, M106
+#GCode defintion reference: http://reprap.org/wiki/G-code
 #Bug - motion is slow on XY moves when steps are ~50 or more on each, speed issue?
+#TODO threading for temperature management. For a quick fix now we call checktemps every 25th Ext move
 try:#read and execute G code
     lineCtr = 1;
+    heaterCheck = 1;
     for lines in open(filename,'r'):
         print 'processing line# '+str(lineCtr)+ ': '+lines;
         lineCtr += 1;
@@ -408,18 +408,20 @@ try:#read and execute G code
             elif(lines.find('X') < 0 and lines.find('Z') < 0): #Extruder only
                 ext_pos = SinglePosition(lines,'E');
                 stepsExt = int(round(ext_pos/dext)) - MExt.position;
-                Motor_control_new.Single_Motor_Step(MExt,stepsExt,50);
+                #TODO fix this extMotor Delay
+                Motor_control_new.Single_Motor_Step(MExt,stepsExt,30);
                 #still need to move Extruder using stepExt(signed int)
             elif(lines.find('X') < 0 and lines.find('E') < 0): #Z Axis only
                 print 'Moving Z axis only';
                 z_pos = SinglePosition(lines,'Z');
                 stepsZ = int(round(z_pos/dz)) - MZ.position;
-                Motor_control_new.Single_Motor_Step(MZ,stepsZ,50);
+                Motor_control_new.Single_Motor_Step(MZ,stepsZ,60);
                 #check Extruder and Heat Bed temp after Z axiz move
                 checkTemps();
             else:                
                 [x_pos,y_pos,ext_pos]=XYExtposition(lines);
                 movetothree(MX,x_pos,dx,MY,y_pos,dy,MExt,ext_pos,dext,speed,engraving);
+                heaterCheck += 1;
                 #create new moveto function to include Extruder postition
             
         elif (lines[0:3]=='G02')|(lines[0:3]=='G03'): #circular interpolation
@@ -458,9 +460,9 @@ try:#read and execute G code
             sintheta=(Dx*e2[0]+Dy*e2[1])/r**2;        #theta is the angule spanned by the circular interpolation curve
                 
             if costheta>1:  # there will always be some numerical errors! Make sure abs(costheta)<=1
-		costheta=1;
-	    elif costheta<-1:
-		costheta=-1;
+                costheta=1;
+            elif costheta<-1:
+                costheta=-1;
 
             theta=arccos(costheta);
             if sintheta<0:
@@ -479,6 +481,8 @@ try:#read and execute G code
                		moveto(MX,tmp_x_pos,dx,MY, tmp_y_pos,dy,speed,True);
                	else:
                		movetothree(MX,tmp_x_pos,dx,MY, tmp_y_pos,dy,MExt,MExt.position+extruderMovePerStep,dext,speed,True);
+        if heaterCheck % 25 == 0: #checking every twentyfifth extruder motor move 
+            checkTemps();
         
 except KeyboardInterrupt:
     pass
